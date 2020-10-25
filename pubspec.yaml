@@ -24,6 +24,9 @@ dependencies:
   flare_flutter: ^1.8.3
   secp256k1: ^0.1.1
   pascaldart: ^1.0.0
+  provider: ^3.0.0
+  ipfs_client:
+    git: https://github.com/InstaPerience/ipfs_client.git
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

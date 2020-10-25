@@ -1,3 +1,4 @@
+import 'package:InstaPerience/domain/image_service.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -13,11 +14,15 @@ import 'package:photofilters/photofilters.dart';
 import 'package:image/image.dart' as imageLib;
 
 class Uploader extends StatefulWidget {
-  _Uploader createState() => _Uploader();
+  final ImageRepository imageRepository;
+
+  const Uploader({Key key, this.imageRepository}) : super(key: key);
+  _Uploader createState() => _Uploader(imageRepository);
 }
 
 class _Uploader extends State<Uploader> {
-  File file;
+  DomainImage file;
+ final ImageRepository imageRepository;
 
   String fileName;
   List<Filter> filters = presetFiltersList;
@@ -30,6 +35,7 @@ class _Uploader extends State<Uploader> {
 
   bool uploading = false;
   bool editing = false;
+  _Uploader(this.imageRepository);
 
   @override
   initState() {
@@ -49,17 +55,19 @@ class _Uploader extends State<Uploader> {
   }
 
   Future getImage(context) async {
-    fileName = basename(file.path);
-    var image = imageLib.decodeImage(file.readAsBytesSync());
-    image = imageLib.copyResize(image, width: 600);
+
+    var image = await file.getContent()
+            .then((bytes) => imageLib.decodeImage(bytes))
+            .then((image) => imageLib.copyResize(image, width : 600));
+
     Map imagefile = await Navigator.push(
       context,
       new MaterialPageRoute(
         builder: (context) => new PhotoFilterSelector(
           title: Text("Edit"),
           image: image,
+          filename: '',
           filters: presetFiltersList,
-          filename: fileName,
           loader: Center(child: CircularProgressIndicator()),
           fit: BoxFit.contain,
         ),
@@ -69,7 +77,6 @@ class _Uploader extends State<Uploader> {
       setState(() {
         file = imagefile['image_filtered'];
       });
-      print(file.path);
     }
   }
 
@@ -166,11 +173,7 @@ class _Uploader extends State<Uploader> {
         ),
         body: Center(
           child: new Container(
-            child: file == null
-                ? Center(
-              child: new Text('No image selected.'),
-            )
-                : Image.file(file),
+            child: file == null ? Center(child: new Text('No image selected.'),) : file.toRenderableWidget(),
           ),
         ),
         floatingActionButton: new FloatingActionButton(
@@ -212,7 +215,15 @@ class _Uploader extends State<Uploader> {
     }
   }
 
+  Future<DomainImage> _fetchDomainImage(ImageSource imageSource) {
+      var imagePicker = ImagePicker();
+      return imagePicker.getImage(source : imageSource, maxWidth: 1920, maxHeight: 1200, imageQuality: 80)
+              .then((pickedFile) => File(pickedFile.path))
+              .then((file) => FileDomainImage(file));
+  }
+
   _selectImage(BuildContext parentContext) async {
+
     return showDialog<Null>(
       context: parentContext,
       barrierDismissible: false, // user must tap button!
@@ -225,22 +236,13 @@ class _Uploader extends State<Uploader> {
                 child: const Text('Take a photo'),
                 onPressed: () async {
                   Navigator.pop(context);
-                  File imageFile =
-                      await ImagePicker.pickImage(source: ImageSource.camera, maxWidth: 1920, maxHeight: 1200, imageQuality: 80);
-                  setState(() {
-                    file = imageFile;
-                  });
+                  _fetchDomainImage(ImageSource.camera).then((image) => setImage(image));
                 }),
             SimpleDialogOption(
                 child: const Text('Choose from Gallery'),
                 onPressed: () async {
-
                   Navigator.of(context).pop();
-                  File imageFile =
-                      await ImagePicker.pickImage(source: ImageSource.gallery, maxWidth: 1920, maxHeight: 1200, imageQuality: 80);
-                  setState(() {
-                    file = imageFile;
-                  });
+                  _fetchDomainImage(ImageSource.gallery).then((image) => setImage(image));
                 }),
             SimpleDialogOption(
               child: const Text("Cancel"),
@@ -271,31 +273,61 @@ class _Uploader extends State<Uploader> {
     setState(() {
       editing = false;
     });
+  }
 
+  void setImage(DomainImage domainImage) {
+      setState(() {
+          file = domainImage;
+      });
+  }
+
+  Future<void> multiUpload(DomainImage imageFile) async {
+
+      var futureIpfsHash = imageRepository.saveImage(imageFile).then((image) => image.imageId);
+      var futureFirebaseUrl = fireBaseImageUpload(imageFile);
+
+      var ipfsHash = await futureIpfsHash;
+      var firebaseUrl = await futureFirebaseUrl;
+
+      await postToFireStore(mediaUrl: firebaseUrl,
+                            ipfsHash: ipfsHash,
+                            description: descriptionController.text,
+                            location: locationController.text);
+      setState(() {
+          file = null;
+          uploading = false;
+          pageController.jumpToPage(4);
+      });
+  }
+
+  Future<String> fireBaseImageUpload(DomainImage domainImage) async {
+      var uuid = Uuid().v1();
+      StorageReference ref = FirebaseStorage.instance.ref().child("post_$uuid.jpg");
+      var futureContent = domainImage.getContent();
+      var content =  await domainImage.getContent();
+
+      var uploadTask =  ref.putData(content);
+      var completion = await uploadTask.onComplete;
+      return await completion.ref.getDownloadURL();
+//      Future<String> url = await domainImage.getContent()
+//              .then((bytes) => ref.putData(bytes))
+//              .then((task) async => await task.onComplete)
+//              .then((var snapshot) async => await snapshot.ref.getDownloadURL());
+
+//      return url;
   }
 
   void postImage() {
     setState(() {
       uploading = true;
     });
-    uploadImage(file).then((String data) {
-      postToFireStore(
-          mediaUrl: data,
-          description: descriptionController.text,
-          location: locationController.text);
-    }).then((_) {
-      setState(() {
-        file = null;
-        uploading = false;
-        pageController.jumpToPage(4);
-        // ipfs blockchain related
-      });
-    });
+
+    multiUpload(file);
   }
 }
 
 class PostForm extends StatelessWidget {
-  final imageFile;
+  final DomainImage imageFile;
   final TextEditingController descriptionController;
   final TextEditingController locationController;
   final bool loading;
@@ -336,7 +368,7 @@ class PostForm extends StatelessWidget {
                       image: DecorationImage(
                     fit: BoxFit.fill,
                     alignment: FractionalOffset.topCenter,
-                    image: FileImage(imageFile),
+                    image: imageFile.toImageProvider()
                   )),
                 ),
               ),
@@ -360,25 +392,15 @@ class PostForm extends StatelessWidget {
     );
   }
 }
-
-Future<String> uploadImage(var imageFile) async {
-  var uuid = Uuid().v1();
-  StorageReference ref = FirebaseStorage.instance.ref().child("post_$uuid.jpg");
-  StorageUploadTask uploadTask = ref.putFile(imageFile);
-
-  String downloadUrl = await (await uploadTask.onComplete).ref.getDownloadURL();
-  return downloadUrl;
-}
-
-void postToFireStore(
-    {String mediaUrl, String location, String description}) async {
+Future<void> postToFireStore({String mediaUrl, String ipfsHash,  String location, String description}) async {
   var reference = Firestore.instance.collection('insta_posts');
 
-  reference.add({
+  return reference.add({
     "username": currentUserModel.username,
     "location": location,
     "likes": {},
     "mediaUrl": mediaUrl,
+    "mediaIPFSHash" : ipfsHash,
     "description": description,
     "ownerId": googleSignIn.currentUser.id,
     "timestamp": DateTime.now(),

@@ -1,5 +1,8 @@
+import 'package:InstaPerience/domain/image_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:ipfs_client/ipfs_client.dart';
+import 'package:provider/provider.dart';
 import 'feed_v2.dart';
 import 'upload_page.dart';
 import 'dart:async';
@@ -19,18 +22,16 @@ final googleSignIn = GoogleSignIn();
 final ref = Firestore.instance.collection('insta_users');
 final FirebaseMessaging _firebaseMessaging = FirebaseMessaging();
 
-
 User currentUserModel;
 
 Future<void> main() async {
-
-  WidgetsFlutterBinding.ensureInitialized(); // after upgrading flutter this is now necessary
+  WidgetsFlutterBinding
+      .ensureInitialized(); // after upgrading flutter this is now necessary
 
   // enable timestamps in firebase
   Firestore.instance.settings().then((_) {
-    print('[Main] Firestore timestamps in snapshots set');},
-    onError: (_) => print('[Main] Error setting timestamps in snapshots')
-  );
+    print('[Main] Firestore timestamps in snapshots set');
+  }, onError: (_) => print('[Main] Error setting timestamps in snapshots'));
   runApp(InstaPerience());
 }
 
@@ -45,11 +46,9 @@ Future<Null> _ensureLoggedIn(BuildContext context) async {
   }
 
   if (await auth.currentUser() == null) {
-
     final GoogleSignInAccount googleUser = await googleSignIn.signIn();
-    final GoogleSignInAuthentication googleAuth = await googleUser
-        .authentication;
-
+    final GoogleSignInAuthentication googleAuth =
+        await googleUser.authentication;
 
     final AuthCredential credential = GoogleAuthProvider.getCredential(
       accessToken: googleAuth.accessToken,
@@ -70,9 +69,8 @@ Future<Null> _silentLogin(BuildContext context) async {
 
   if (await auth.currentUser() == null && user != null) {
     final GoogleSignInAccount googleUser = await googleSignIn.signIn();
-    final GoogleSignInAuthentication googleAuth = await googleUser
-        .authentication;
-
+    final GoogleSignInAuthentication googleAuth =
+        await googleUser.authentication;
 
     final AuthCredential credential = GoogleAuthProvider.getCredential(
       accessToken: googleAuth.accessToken,
@@ -81,8 +79,6 @@ Future<Null> _silentLogin(BuildContext context) async {
 
     await auth.signInWithCredential(credential);
   }
-
-
 }
 
 Future<Null> _setUpNotifications() async {
@@ -165,19 +161,26 @@ class InstaPerience extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'InstaPerience',
-      theme: ThemeData(
-          primarySwatch: Colors.blue,
-          buttonColor: Colors.pink,
-          primaryIconTheme: IconThemeData(color: Colors.black),
-          textTheme: Theme.of(context).textTheme.apply(
-            bodyColor: Colors.white,
-            displayColor: Colors.black
-          )
+    return MultiProvider(
+      providers: [
+        Provider.value(value: IpfsClient.newClient('18.218.250.68', 5001)),
+        ProxyProvider<IpfsClient, ImageRepository>(
+          update: (context, ipfsClient, imageRepository) =>
+              new IpfsImageRepository(ipfsClient),
+        )
+      ],
+      child: MaterialApp(
+        title: 'InstaPerience',
+        theme: ThemeData(
+            primarySwatch: Colors.blue,
+            buttonColor: Colors.pink,
+            primaryIconTheme: IconThemeData(color: Colors.black),
+            textTheme: Theme.of(context)
+                .textTheme
+                .apply(bodyColor: Colors.white, displayColor: Colors.black)),
+        home: HomePage(title: 'InstaPerience'),
+        debugShowCheckedModeBanner: false,
       ),
-      home: HomePage(title: 'InstaPerience'),
-      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -227,39 +230,37 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget get bottomNavigationbar => CupertinoTabBar(
-      backgroundColor: Colors.amberAccent,
-      items: <BottomNavigationBarItem>[
-        BottomNavigationBarItem(
-          icon: Icon(Icons.home,
-          color: (_page == 0) ? Colors.black : Colors.black),
-            title: Container(height: 0.0),
-            backgroundColor: Colors.white
-        ),
-        BottomNavigationBarItem(
-            icon: Icon(Icons.search,
-                color: (_page == 1) ? Colors.black : Colors.black),
-            title: Container(height: 0.0),
-            backgroundColor: Colors.white),
-        BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle,
-                color: (_page == 2) ? Colors.black : Colors.black),
-            title: Container(height: 0.0),
-            backgroundColor: Colors.white),
-        BottomNavigationBarItem(
-            icon: Icon(Icons.star,
-                color: (_page == 3) ? Colors.black : Colors.black),
-            title: Container(height: 0.0),
-            backgroundColor: Colors.white),
-        BottomNavigationBarItem(
-            icon: Icon(Icons.person,
-                color: (_page == 4) ? Colors.black : Colors.black),
-            title: Container(height: 0.0),
-            backgroundColor: Colors.white),
-      ],
-      onTap: navigationTapped,
-      currentIndex: _page,
-  );
-
+        backgroundColor: Colors.amberAccent,
+        items: <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+              icon: Icon(Icons.home,
+                  color: (_page == 0) ? Colors.black : Colors.black),
+              title: Container(height: 0.0),
+              backgroundColor: Colors.white),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.search,
+                  color: (_page == 1) ? Colors.black : Colors.black),
+              title: Container(height: 0.0),
+              backgroundColor: Colors.white),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.add_circle,
+                  color: (_page == 2) ? Colors.black : Colors.black),
+              title: Container(height: 0.0),
+              backgroundColor: Colors.white),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.star,
+                  color: (_page == 3) ? Colors.black : Colors.black),
+              title: Container(height: 0.0),
+              backgroundColor: Colors.white),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.person,
+                  color: (_page == 4) ? Colors.black : Colors.black),
+              title: Container(height: 0.0),
+              backgroundColor: Colors.white),
+        ],
+        onTap: navigationTapped,
+        currentIndex: _page,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +285,7 @@ class _HomePageState extends State<HomePage> {
                 Container(color: Colors.white, child: SearchPage()),
                 Container(
                   color: Colors.white,
-                  child: Uploader(),
+                  child: Uploader(imageRepository : Provider.of<ImageRepository>(context, listen : false)),
                 ),
                 Container(
                     color: Colors.white, child: ActivityFeedPage()),
